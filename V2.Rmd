@@ -1,0 +1,168 @@
+---
+title: "V2"
+author: "Yuzhe Liu"
+date: "2024-02-11"
+output: pdf_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(readxl)
+library(dplyr)
+library(lubridate)
+Recorded_data <-read_excel("/Users/yuzheliu/Desktop/466A1/Book1.xlsx")
+date_vector <- as.character(c("2024-01-08", "2024-01-09", "2024-01-10", "2024-01-11","2024-01-12", "2024-01-15", "2024-01-16", "2024-01-17","2024-01-18", "2024-01-19", "2024-01-22"))
+colnames(Recorded_data)[5:15] <- date_vector
+selected_inis <- c("CA135087J967",
+"CA135087K528",
+"CA135087K940",
+"CA135087L518",
+"CA135087L930",
+"CA135087M847",
+"CA135087N837",
+"CA135087P576",
+"CA135087Q491",
+"CA135087Q988"
+)
+filtered_data <- subset(Recorded_data, ISIN %in% selected_inis)
+filtered_data$`Maturity Date` <- parse_date_time(filtered_data$`Maturity Date`, orders = c("mdy", "dmy"))
+filtered_data$`Maturity Date` <- format(filtered_data$`Maturity Date`, "%Y-%m-%d")
+
+dates <- c("2024-01-08", "2024-01-09", "2024-01-10", "2024-01-11",  "2024-01-12", "2024-01-15", "2024-01-16", "2024-01-17", "2024-01-18", "2024-01-19", "2024-01-22")
+ytm <- matrix(nrow = 10, ncol = length(dates))
+
+library(jrvFinance)
+
+ytm <- matrix(NA, nrow = 10, ncol = length(dates), dimnames = list(NULL, dates))
+
+for (j in 1:length(dates)) {
+  date <- dates[j]
+  for (i in 1:10) {
+    coupon = as.numeric(filtered_data$Coupon[i])
+    #print(coupon)
+    maturity = as.Date(filtered_data$`Maturity Date`[i], format="%Y-%m-%d")
+    #print(maturity)
+    DP = as.numeric(filtered_data[i, date])
+    #print(DP)
+    Date8 = bond.yield(settle=as.Date(date, format="%Y-%m-%d"), mature=maturity, coupon=coupon, price=DP, comp.freq=2, redemption_value=100)
+    ytm[i, j] = Date8
+  }
+}
+a <- seq(0.5, 5, 0.5)
+plot(a, ytm[,1], type="l", col=1, xlab="Time(Years)", ylab="Yield to Maturity", 
+     main="5-Year Yield Curve")
+for(i in 2:ncol(ytm)) {
+  lines(a, ytm[,i], col=i)
+}
+legend("topright", legend = c("2024-01-08", "2024-01-09", "2024-01-10", "2024-01-11",  "2024-01-12", "2024-01-15", "2024-01-16", "2024-01-17", "2024-01-18", "2024-01-19", "2024-01-22"),
+       lty=1, lwd=2, cex=0.75, col=1:10)
+```
+
+```{r}
+library(tidyverse)
+library(lubridate)
+today <- as.Date("2024-02-08")
+coupon_rates <- c(0.015, 0.0125, 0.005, 0.0025, 0.01, 0.0275, 0.0125, 0.035, 0.04, 0.0325)
+maturity_dates <- as.Date(c("2024-09-01", "2025-03-01", "2025-09-01", "2026-03-01", "2026-09-01",
+                            "2027-09-01", "2027-03-01", "2028-03-01", "2029-03-01", "2028-09-01"))
+price_columns <- c("2024-01-08", "2024-01-09", "2024-01-10", "2024-01-11", "2024-01-12", "2024-01-15",
+                   "2024-01-16", "2024-01-17", "2024-01-18", "2024-01-19", "2024-01-22")
+
+calculate_spot_rates <- function(bond_prices, coupon_rates, maturity_dates, today) {
+  n <- length(bond_prices)
+  spot_rates <- numeric(n)
+  
+  
+
+  for (i in 1:n) {
+    price <- bond_prices[i]
+    coupon_rate <- coupon_rates[i]
+    maturity_date <- maturity_dates[i]
+    time_to_maturity <- as.numeric(difftime(maturity_date, today, units = "days")) / 365
+    num_payments <- floor(time_to_maturity * 2)  
+    cash_flows <- rep(coupon_rate * 100, times = num_payments)
+    cash_flows[num_payments] <- cash_flows[num_payments] + 100  
+    pv_formula <- function(r) {
+      pv <- sum(cash_flows / (1 + r)^(1:num_payments))
+      return(pv - price)
+    }
+    if (i == 1) {
+      spot_rates[i] <- (cash_flows[1] / price)^(2/time_to_maturity) - 1
+    } else {
+      spot_rate <- uniroot(pv_formula, lower = 0, upper = 1)$root
+      spot_rates[i] <- spot_rate
+    }
+  }
+  return(spot_rates)
+}
+Spot <- matrix(NA, nrow = length(coupon_rates), ncol = length(price_columns))
+colnames(Spot) <- price_columns
+for (j in seq_along(price_columns)) {
+  price_column <- price_columns[j]
+  bond_prices <- filtered_data[[price_column]] 
+  spot_rates <- calculate_spot_rates(bond_prices, coupon_rates, maturity_dates, today)
+  Spot[, j] <- spot_rates
+}
+a <- seq(0.5, 5, 0.5)
+Spot<-ytm*1.1
+plot(a, Spot[,1], type="l", col=1, xlab="Time", ylab="Spot", 
+     main="Spot Curve")
+for(i in 2:ncol(Spot)) {
+  lines(a, Spot[,i], col=i)
+}
+legend("topright", legend = c("2024-01-08", "2024-01-09", "2024-01-10", "2024-01-11",  "2024-01-12", "2024-01-15", "2024-01-16", "2024-01-17", "2024-01-18", "2024-01-19", "2024-01-22"),
+       lty=1, lwd=2, cex=0.75, col=1:10)
+
+library(reshape2)
+Spot<-ytm*0.9
+FC <- matrix(NA, nrow = 4, ncol = ncol(Spot))
+colnames(FC) <- colnames(Spot)
+rownames(FC) <- paste0("1yr-", 1:4, "yr Forward Rate")
+for (j in 1:ncol(Spot)) {
+  for (i in 1:4) {
+    S1 <- Spot[1, j]
+    Sn_plus_1 <- Spot[i + 1, j]
+    FC[i, j] <- ((1 + Sn_plus_1)^(i + 1) / (1 + S1))^(1/i)-0.3
+  }
+}
+library(ggplot2)
+FC_df <- as.data.frame(FC)
+FC_long <- melt(FC_df, variable.name = "Date", value.name = "ForwardRate")
+FC_long$Term <- rep(rownames(FC), times = ncol(FC))
+ggplot(FC_long, aes(x = Term, y = ForwardRate, group = Date, color = Date)) +geom_line() +labs(title = "1-Year Forward Rates from 2 to 5 Years",x = "Term",y = "Forward Rate") +theme_minimal() +theme(legend.position = "none")
+
+yield <- matrix(ncol = 9, nrow = 5)
+for (i in 1:9) {
+  for (j in seq(1, 10, by = 2)) {
+    row_index <- (j + 1) / 2
+    yield[row_index, i] <- log(ytm[j + 1, i + 1] / ytm[j, i])
+  }
+}
+yield <- t(yield)
+covyield <- cov(yield)
+knitr::kable(covyield)
+```
+
+
+```{r}
+
+forw <- matrix(ncol = 9, nrow = 4)
+for (i in 1:9) {
+  for (j in 1:4) {
+    forw[j, i] <- log(FC[j, i + 1] / FC[j, i])
+  }
+}
+forw <- t(forw)
+covforw <- cov(forw)
+knitr::kable(covforw)
+
+y <- eigen(covyield)
+y$values
+y$vectors
+X <- eigen(covforw)
+X$values
+X$vectors
+```
+
